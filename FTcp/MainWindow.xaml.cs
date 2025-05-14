@@ -81,6 +81,7 @@ namespace FTcp
                     foreach (var file in Directory.GetFiles(ClientFilesDir))
                     {
                         var fi = new FileInfo(file);
+                        fi.Refresh(); // Обновляем информацию о файле
                         LocalFiles.Add(new FileItem
                         {
                             FileName = fi.Name,
@@ -293,23 +294,36 @@ namespace FTcp
                 await ns.WriteAsync(Encoding.UTF8.GetBytes(clientId + "\n"));
 
                 // 3) создаём файл и читаем ровно fileSize байт
-                var outPath = Path.Combine(ClientFilesDir, fileName);
-                using var fs = File.Create(outPath);
-                var buffer = new byte[8192];
-                long remaining = fileSize;
-                while (remaining > 0)
+
+                string outPath = Path.Combine(ClientFilesDir, fileName);
+                using (var fs = File.Create(outPath))
                 {
-                    int toRead = (int)Math.Min(buffer.Length, remaining);
-                    int read = await ns.ReadAsync(buffer, 0, toRead);
-                    if (read == 0) break;          // поток закрыт раньше времени
-                    await fs.WriteAsync(buffer, 0, read);
-                    remaining -= read;
+                    var buffer = new byte[8192];
+                    long remaining = fileSize;
+                    while (remaining > 0)
+                    {
+                        int toRead = (int)Math.Min(buffer.Length, remaining);
+                        int read = await ns.ReadAsync(buffer, 0, toRead);
+                        if (read == 0) break;
+                        await fs.WriteAsync(buffer, 0, read);
+                        remaining -= read;
+                    }
+
+                    if (remaining != 0)
+                    {
+                        throw new IOException($"Не хватает {remaining} байт.");
+                    }
+
+                    // Отправляем подтверждение серверу
+                    await ns.WriteAsync(Encoding.UTF8.GetBytes("ACK"));
+                    await ns.FlushAsync();
                 }
 
-                // 4) обновляем UI
+                // Обновляем UI
                 Dispatcher.Invoke(() =>
                 {
                     LoadLocalFiles();
+                    LocalFilesListView.Items.Refresh();
                     MessageBox.Show($"Получен {fileName} ({fileSize} байт) от {fromId}");
                 });
             }

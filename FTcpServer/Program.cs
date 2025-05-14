@@ -331,6 +331,11 @@ class Program
         var id1 = await ReadClientIdAsync(ns1);
         var id2 = await ReadClientIdAsync(ns2);
 
+        if ((id1 != senderId || id2 != recipientId) && (id1 != recipientId || id2 != senderId))
+        {
+            Logger($"P2P: получены ID: [{id1}] и [{id2}], ожидались: [{senderId}] и [{recipientId}]", true);
+        }
+
         // 7) Разбираем, кто sender, кто recipient
         TcpClient dataSender, dataReceiver;
         if (id1 == senderId && id2 == recipientId)
@@ -353,16 +358,36 @@ class Program
         try
         {
             // 7) Relay
-            using var sendNs = dataSender.GetStream();
-            using var recvNs = dataReceiver.GetStream();
-            await sendNs.CopyToAsync(recvNs);
+            var sendNs = dataSender.GetStream();
+            var recvNs = dataReceiver.GetStream();
+
+            // 1. читаем clientId
+            var id = await ReadClientIdAsync(sendNs);
+
+            // 2. после ReadClientIdAsync — начинаем передачу вручную, НЕ CopyToAsync
+            var buffer = new byte[8192];
+            int read;
+            while ((read = await sendNs.ReadAsync(buffer)) > 0)
+            {
+                await recvNs.WriteAsync(buffer, 0, read);
+            }
+            // Гарантируем отправку всех данных
             await recvNs.FlushAsync();
 
-            // 8) Сообщения об окончании
+            // Уведомляем получателя о завершении отправки
+            dataSender.Client.Shutdown(SocketShutdown.Send);
+
+            // Ждём подтверждения (ACK) от получателя
+            var ackBuffer = new byte[3];
+            int bytesRead = await recvNs.ReadAsync(ackBuffer);
+            if (bytesRead == 0 || Encoding.UTF8.GetString(ackBuffer, 0, bytesRead) != "ACK")
+            {
+                Logger("Подтверждение не получено", true);
+            }
+
+            // Отправляем уведомления об успешной передаче
             await SendLineAsync(senderStream, "TRANSFER_COMPLETE");
             await SendLineAsync(recipientStream, "TRANSFER_COMPLETE");
-
-            // 9) Закрываем data-соединения и listener
             dataSender.Close();
             dataReceiver.Close();
             listener.Stop();
