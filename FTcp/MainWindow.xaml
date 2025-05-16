@@ -4,96 +4,233 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:FTcp"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         mc:Ignorable="d"
         Icon="Resources/app.ico"
-        Title="Файловый клиент" Height="600" Width="1100">
-    <Grid Margin="10">
+        Title="Файловый клиент" 
+        Height="650" 
+        Width="1200"
+        FontFamily="Segoe UI"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}">
+
+    <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
 
-        <!-- Панель подключения -->
-        <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBox x:Name="IpTextBox" Width="150" Margin="0,0,5,0" 
-                     Text="127.0.0.1" ToolTip="IP-адрес сервера"/>
-            <TextBox x:Name="PortTextBox" Width="80" Margin="0,0,5,0" 
-                     Text="9000" ToolTip="Порт сервера"/>
-            <Button Content="Подключиться" Click="ConnectButton_Click" Width="100"/>
-        </StackPanel>
+        <!-- Header -->
+        <materialDesign:Card Grid.Row="0" Padding="16" materialDesign:ElevationAssist.Elevation="Dp4">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <materialDesign:PackIcon 
+                    Kind="CloudUpload" 
+                    Foreground="{DynamicResource PrimaryHueMidBrush}"
+                    Width="28" 
+                    Height="28"
+                    VerticalAlignment="Center"
+                    Margin="0 0 16 0"/>
 
-        <!-- Отображение ID клиента -->
-        <TextBox x:Name="ClientIdText"
-           Grid.Row="0" Grid.Column="1"
-           HorizontalAlignment="Right"
-           VerticalAlignment="Center"
-           FontWeight="Bold"
-           Foreground="Blue"
-           Text="ID: не определён"
-           IsReadOnly="True"
-           BorderThickness="0"
-           Background="Transparent"
-           SelectionBrush="LightBlue"
-           CaretBrush="Black"/>
+                <TextBlock 
+                    Text="FILE TRANSFER CLIENT" 
+                    FontSize="22"
+                    FontWeight="Bold"
+                    VerticalAlignment="Center"/>
 
-        <GroupBox Grid.Row="1" Grid.Column="0" Header="Мои файлы" Margin="0,0,5,0">
-            <ListView x:Name="LocalFilesListView" 
-            ItemsSource="{Binding LocalFiles}"
-            SelectionMode="Single">
-                <ListView.View>
-                    <GridView>
-                        <GridViewColumn Header="Название" Width="200" 
-                              DisplayMemberBinding="{Binding FileName}"/>
-                        <GridViewColumn Header="Тип" Width="80"
-                              DisplayMemberBinding="{Binding FileType}"/>
-                        <GridViewColumn Header="Дата изменения" Width="120"
-                              DisplayMemberBinding="{Binding LastModified, StringFormat=dd.MM.yyyy HH:mm}"/>
-                        <GridViewColumn Header="Размер (байты)" Width="100" 
-                              DisplayMemberBinding="{Binding FileSize}"/>
-                    </GridView>
-                </ListView.View>
-                <ListView.ContextMenu>
-                    <ContextMenu>
-                        <MenuItem Header="Отправить на сервер" Click="UploadToServer_Click"/>
-                        <MenuItem Header="Отправить клиенту..." Click="SendToClient_Click"/>
-                    </ContextMenu>
-                </ListView.ContextMenu>
-            </ListView>
-        </GroupBox>
+                <StackPanel Orientation="Horizontal" Margin="40 0" VerticalAlignment="Center">
+                    <TextBox 
+                        x:Name="IpTextBox" 
+                        Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                        Width="150"
+                        materialDesign:HintAssist.Hint="Server IP"
+                        Text="127.0.0.1"
+                        Margin="0 0 8 0"
+                        FontSize="14"
+                        VerticalContentAlignment="Center"/>
 
-        <!-- Файлы на сервере -->
-        <GroupBox Grid.Row="1" Grid.Column="1" Header="Файлы на сервере" Margin="5,0,0,0">
-            <ListView x:Name="ServerFilesListView" 
-                    ItemsSource="{Binding ServerFiles}"
-                    MouseDoubleClick="ServerFilesListView_MouseDoubleClick"
-                    SelectionMode="Single">
-                <ListView.View>
-                    <GridView>
-                        <GridViewColumn Header="Название" Width="200" 
-                                      DisplayMemberBinding="{Binding FileName}"/>
-                        <GridViewColumn Header="Тип" Width="80"
-                                      DisplayMemberBinding="{Binding FileType}"/>
-                        <GridViewColumn Header="Дата загрузки" Width="120"
-                                      DisplayMemberBinding="{Binding UploadDate, StringFormat=dd.MM.yyyy HH:mm}"/>
-                        <GridViewColumn Header="Размер (байты)" Width="100" 
-                                      DisplayMemberBinding="{Binding FileSize}"/>
-                    </GridView>
-                </ListView.View>
-            </ListView>
-        </GroupBox>
+                    <TextBox 
+                        x:Name="PortTextBox" 
+                        Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                        Width="80"
+                        materialDesign:HintAssist.Hint="Port"
+                        Text="9000"
+                        Margin="0 0 16 0"
+                        FontSize="14"
+                        VerticalContentAlignment="Center"/>
 
-        <!-- Список подключенных клиентов -->
-        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,10,0,0">
-            <TextBlock Text="Подключенные клиенты:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <ComboBox x:Name="ClientsComboBox" 
-                     ItemsSource="{Binding ConnectedClients}"
-                     DisplayMemberPath="Id"
-                     Width="200"/>
-        </StackPanel>
+                    <Button 
+                        Style="{StaticResource MaterialDesignRaisedButton}"
+                        Click="ConnectButton_Click"
+                        Foreground="{DynamicResource PrimaryHueMidForegroundBrush}"
+                        Padding="12 8"
+                        VerticalAlignment="Stretch"
+                        MinHeight="50"
+                        MinWidth="160">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="LanConnect" Width="25" Height="25" Margin="0 0 8 0"/>
+                            <TextBlock Text="CONNECT" FontSize="16" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <TextBox 
+                    x:Name="ClientIdText"
+                    Margin="16 0 0 0"
+                    FontWeight="SemiBold"
+                    Text="ID: Not assigned"
+                    VerticalAlignment="Center"
+                    FontSize="14"
+                    Padding="0 2"
+                    IsReadOnly="True"
+                    BorderThickness="0"
+                    Background="Transparent"
+                    Focusable="True"
+                    Cursor="IBeam"
+                    VerticalContentAlignment="Center"
+                    materialDesign:TextFieldAssist.UnderlineBrush="Transparent">
+
+                    <TextBox.Style>
+                        <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignTextBox}">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="TextBox">
+                                        <ScrollViewer x:Name="PART_ContentHost"
+                                    Focusable="False"
+                                    HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                        </Style>
+                    </TextBox.Style>
+                </TextBox>
+            </StackPanel>
+        </materialDesign:Card>
+
+        <!-- Main Content -->
+        <Grid Grid.Row="1" Margin="0 12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Local Files Card -->
+            <materialDesign:Card Grid.Column="0" Margin="0 8 8 8" materialDesign:ElevationAssist.Elevation="Dp4">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="LOCAL FILES" 
+                               Style="{StaticResource MaterialDesignSubtitle1TextBlock}"
+                               Margin="12 8"/>
+
+                    <ListView x:Name="LocalFilesListView"
+                        Grid.Row="1"
+                        ItemsSource="{Binding LocalFiles}"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                        <ListView.View>
+                            <GridView>
+                                <GridView.ColumnHeaderContainerStyle>
+                                    <Style TargetType="{x:Type GridViewColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                    </Style>
+                                </GridView.ColumnHeaderContainerStyle>
+                                <GridViewColumn Header="Name" Width="180" DisplayMemberBinding="{Binding FileName}"/>
+                                <GridViewColumn Header="Type" Width="100" DisplayMemberBinding="{Binding FileType}"/>
+                                <GridViewColumn Header="Modified" Width="140" 
+                                             DisplayMemberBinding="{Binding LastModified, StringFormat=dd.MM.yyyy HH:mm}"/>
+                                <GridViewColumn Header="Size (bytes)" Width="130" DisplayMemberBinding="{Binding FileSize}"/>
+                            </GridView>
+                        </ListView.View>
+                        <ListView.ContextMenu>
+                            <ContextMenu Style="{StaticResource MaterialDesignContextMenu}">
+                                <MenuItem Header="Upload to Server" 
+                                    Click="UploadToServer_Click"
+                                    Style="{StaticResource MaterialDesignMenuItem}">
+                                    <MenuItem.Icon>
+                                        <materialDesign:PackIcon Kind="Upload"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+
+                                <MenuItem Header="Send to Client..." 
+                                    Click="SendToClient_Click"
+                                    Style="{StaticResource MaterialDesignMenuItem}">
+                                    <MenuItem.Icon>
+                                        <materialDesign:PackIcon Kind="Share"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                            </ContextMenu>
+                        </ListView.ContextMenu>
+                    </ListView>
+                </Grid>
+            </materialDesign:Card>
+
+            <!-- Server Files Card -->
+            <materialDesign:Card Grid.Column="1" Margin="8 8 0 8" materialDesign:ElevationAssist.Elevation="Dp4">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="SERVER FILES" 
+                               Style="{StaticResource MaterialDesignSubtitle1TextBlock}"
+                               Margin="12 8"/>
+
+                    <ListView x:Name="ServerFilesListView"
+                        Grid.Row="1"
+                        ItemsSource="{Binding ServerFiles}"
+                        MouseDoubleClick="ServerFilesListView_MouseDoubleClick"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                        <ListView.View>
+                            <GridView>
+                                <GridView.ColumnHeaderContainerStyle>
+                                    <Style TargetType="{x:Type GridViewColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                    </Style>
+                                </GridView.ColumnHeaderContainerStyle>
+                                <GridViewColumn Header="Name" Width="180" DisplayMemberBinding="{Binding FileName}"/>
+                                <GridViewColumn Header="Type" Width="100" DisplayMemberBinding="{Binding FileType}"/>
+                                <GridViewColumn Header="Upload Date" Width="140" 
+                                             DisplayMemberBinding="{Binding UploadDate, StringFormat=dd.MM.yyyy HH:mm}"/>
+                                <GridViewColumn Header="Size (bytes)" Width="130" DisplayMemberBinding="{Binding FileSize}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Grid>
+            </materialDesign:Card>
+        </Grid>
+
+        <!-- Footer -->
+        <materialDesign:Card Grid.Row="2" Margin="8" Padding="12" materialDesign:ElevationAssist.Elevation="Dp4">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <materialDesign:PackIcon 
+                    Kind="AccountGroup" 
+                    Foreground="{DynamicResource SecondaryHueMidBrush}"
+                    Width="20"
+                    Height="20"
+                    VerticalAlignment="Center"
+                    Margin="0 0 8 0"/>
+
+                <TextBlock 
+                    Text="Connected Clients:" 
+                    Style="{StaticResource MaterialDesignBody1TextBlock}"
+                    VerticalAlignment="Center"/>
+
+                <ComboBox 
+                    x:Name="ClientsComboBox" 
+                    Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                    ItemsSource="{Binding ConnectedClients}"
+                    DisplayMemberPath="Id"
+                    Width="240"
+                    Margin="8 0 0 0"
+                    VerticalAlignment="Center"
+                    materialDesign:HintAssist.Hint="Select client"/>
+            </StackPanel>
+        </materialDesign:Card>
     </Grid>
 </Window>

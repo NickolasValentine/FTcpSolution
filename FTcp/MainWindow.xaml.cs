@@ -162,7 +162,7 @@ namespace FTcp
                     {
                         clientId = response.Split('|')[1];
                         // Обновите текст в UI
-                        Dispatcher.Invoke(() => ClientIdText.Text = $"ID: {clientId}");
+                        Dispatcher.Invoke(() => ClientIdText.Text = $"ID: {clientId.TrimEnd('\n', '\r')}");
                         await notificationStream.WriteAsync(Encoding.UTF8.GetBytes("NOTIFICATION_ACK"), token);
 
                         // ... остальной код ...
