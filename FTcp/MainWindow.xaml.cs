@@ -199,6 +199,11 @@ namespace FTcp
                     Logger("Таймаут операции", true);
                     await Dispatcher.InvokeAsync(() => MessageBox.Show("Сервер не отвечает."));
                 }
+                catch (OperationCanceledException ex)
+                {
+                    // Если это отмена не токеном (какая-то внутренняя таймаутная отмена),
+                    // то мможно логировать или показывать своё сообщение:
+                }
                 catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused)
                 {
                     Logger($"Сервер недоступен: {ex.Message}", true);
@@ -207,6 +212,8 @@ namespace FTcp
                 }
                 catch (Exception ex)
                 {
+                    // Отлавливаем все прочие ошибки, но игнорируем повторные OperationCanceledException
+                    if (ex is OperationCanceledException) return;
                     Dispatcher.Invoke(() => MessageBox.Show($"Ошибка связи: {ex.Message}"));
                 }
                 finally
@@ -255,11 +262,13 @@ namespace FTcp
                         }
                     });
                     break;
-
+                case "REFRESH":
+                    // Обновляем список файлов сервера в UI-потоке
+                    Dispatcher.Invoke(async () => await LoadServerFiles());
+                    break;
                 case "TRANSFER_COMPLETE":
                     Dispatcher.Invoke(() => MessageBox.Show("Передача завершена"));
                     break;
-
                 case "CLIENT_CONNECTED":
                     var newId = parts[1];
                     // Обязательно в UI-потоке
@@ -315,8 +324,9 @@ namespace FTcp
                     }
 
                     // Отправляем подтверждение серверу
-                    await ns.WriteAsync(Encoding.UTF8.GetBytes("ACK"));
+                    await ns.WriteAsync(Encoding.UTF8.GetBytes("ACK\n"));
                     await ns.FlushAsync();
+                    dc.Client.Shutdown(SocketShutdown.Send);
                 }
 
                 // Обновляем UI
@@ -435,49 +445,48 @@ namespace FTcp
             var fileItem = LocalFilesListView.SelectedItem as FileItem;
             if (fileItem == null) return;
 
-            try
-            {
-                var filePath = Path.Combine(ClientFilesDir, fileItem.FileName);
-                var fileBytes = File.ReadAllBytes(filePath);
+            var path = Path.Combine(ClientFilesDir, fileItem.FileName);
+            var fileBytes = File.ReadAllBytes(path);
+            bool retryWithForce = false;
 
-                using (var client = new TcpClient())
+            do
+            {
+                retryWithForce = false;
+                try
                 {
+                    using var client = new TcpClient();
                     await client.ConnectAsync(serverAddress, serverPort);
-                    using (var stream = client.GetStream())
+                    using var stream = client.GetStream();
+
+                    // выбрали заголовок
+                    var cmdType = retryWithForce ? "FORCE_UPLOAD" : "UPLOAD";
+                    var header = $"{cmdType}|{fileItem.FileName}|{fileBytes.Length}";
+                    await stream.WriteAsync(Encoding.UTF8.GetBytes(header));
+
+                    // ждём ответа
+                    var rspBuf = new byte[128];
+                    int read = await stream.ReadAsync(rspBuf);
+                    var response = Encoding.UTF8.GetString(rspBuf, 0, read).Trim();
+
+                    if (response == "FILE_EXISTS" && !retryWithForce)
                     {
-                        var header = $"UPLOAD|{fileItem.FileName}|{fileBytes.Length}";
-                        await stream.WriteAsync(Encoding.UTF8.GetBytes(header));
-
-                        var responseBuffer = new byte[128];
-                        var bytesRead = await stream.ReadAsync(responseBuffer);
-                        var response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
-
-                        if (response == "FILE_EXISTS")
-                        {
-                            if (MessageBox.Show("Перезаписать файл?", "Файл существует", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                            {
-                                header = $"FORCE_UPLOAD|{fileItem.FileName}|{fileBytes.Length}";
-                                await stream.WriteAsync(Encoding.UTF8.GetBytes(header));
-                                bytesRead = await stream.ReadAsync(responseBuffer);
-                            }
-                            else
-                            {
-                                return;
-                            }
-                        }
-
-                        await stream.WriteAsync(fileBytes, 0, fileBytes.Length);
-                        bytesRead = await stream.ReadAsync(responseBuffer);
-                        await LoadServerFiles();
-                        MessageBox.Show("Файл успешно загружен на сервер!");
+                        // просто переподключаемся и пробуем перезаписать
+                        retryWithForce = true;
+                        continue;
                     }
+
+                    // дальше идёт запись тела
+                    await stream.WriteAsync(fileBytes, 0, fileBytes.Length);
+                    // можно ждать «HEADER_ACK» (как в загрузке), но сервер у вас сразу идёт в приём
+                    MessageBox.Show("Файл успешно загружен!");
+                    await LoadServerFiles();
                 }
-            }
-            catch (Exception ex)
-            {
-                Logger($"Ошибка загрузки файла: {ex.Message}", true);
-                MessageBox.Show($"Ошибка загрузки: {ex.Message}");
-            }
+                catch (Exception ex)
+                {
+                    Logger($"Ошибка загрузки файла: {ex.Message}", true);
+                    MessageBox.Show($"Ошибка загрузки: {ex.Message}");
+                }
+            } while (retryWithForce);
         }
 
         private async void SendToClient_Click(object sender, RoutedEventArgs e)

@@ -58,8 +58,14 @@ class Program
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
             EnableRaisingEvents = true
         };
-        _fileWatcher.Deleted += (s, e) => BroadcastCommand($"DELETE|{e.Name}");
-        _fileWatcher.Renamed += (s, e) => BroadcastCommand($"RENAME|{e.OldName}|{e.Name}");
+        // При добавлении файла
+        _fileWatcher.Created += (s, e) => BroadcastCommand("REFRESH|");
+        // При удалении
+        _fileWatcher.Deleted += (s, e) => BroadcastCommand("REFRESH|");
+        // При переименовании
+        _fileWatcher.Renamed += (s, e) => BroadcastCommand("REFRESH|");
+        // При изменении содержимого (например, перезапись)
+        _fileWatcher.Changed += (s, e) => BroadcastCommand("REFRESH|");
         _fileWatcher.Error += (s, e) => Logger($"Ошибка FileSystemWatcher: {e.GetException().Message}", true);
     }
 
@@ -362,7 +368,8 @@ class Program
             var recvNs = dataReceiver.GetStream();
 
             // 1. читаем clientId
-            var id = await ReadClientIdAsync(sendNs);
+            var idSender = await ReadClientIdAsync(sendNs);
+            var idReceiver = await ReadClientIdAsync(recvNs);
 
             // 2. после ReadClientIdAsync — начинаем передачу вручную, НЕ CopyToAsync
             var buffer = new byte[8192];
@@ -371,18 +378,30 @@ class Program
             {
                 await recvNs.WriteAsync(buffer, 0, read);
             }
-            // Гарантируем отправку всех данных
             await recvNs.FlushAsync();
 
-            // Уведомляем получателя о завершении отправки
+            // Уведомляем передающего о завершении
             dataSender.Client.Shutdown(SocketShutdown.Send);
 
             // Ждём подтверждения (ACK) от получателя
-            var ackBuffer = new byte[3];
-            int bytesRead = await recvNs.ReadAsync(ackBuffer);
-            if (bytesRead == 0 || Encoding.UTF8.GetString(ackBuffer, 0, bytesRead) != "ACK")
+            var ackSb = new StringBuilder();
+            var buf = new byte[1];
+            while (true)
             {
-                Logger("Подтверждение не получено", true);
+                int readACK = await recvNs.ReadAsync(buf, 0, 1);
+                if (readACK == 0) break;
+                char c = (char)buf[0];
+                if (c == '\n') break;
+                ackSb.Append(c);
+            }
+
+            if (ackSb.ToString().Trim() != "ACK")
+            {
+                Logger($"Подтверждение не получено. Получено: {ackSb}.", true);
+            }
+            else
+            {
+                Logger($"Получено:{ackSb}.");
             }
 
             // Отправляем уведомления об успешной передаче

@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:FTcp"
         mc:Ignorable="d"
+        Icon="Resources/app.ico"
         Title="Файловый клиент" Height="600" Width="1100">
     <Grid Margin="10">
         <Grid.RowDefinitions>
@@ -27,19 +28,23 @@
         </StackPanel>
 
         <!-- Отображение ID клиента -->
-        <TextBlock x:Name="ClientIdText" 
+        <TextBox x:Name="ClientIdText"
            Grid.Row="0" Grid.Column="1"
            HorizontalAlignment="Right"
            VerticalAlignment="Center"
            FontWeight="Bold"
            Foreground="Blue"
-           Text="ID: не определён"/>
+           Text="ID: не определён"
+           IsReadOnly="True"
+           BorderThickness="0"
+           Background="Transparent"
+           SelectionBrush="LightBlue"
+           CaretBrush="Black"/>
 
         <GroupBox Grid.Row="1" Grid.Column="0" Header="Мои файлы" Margin="0,0,5,0">
             <ListView x:Name="LocalFilesListView" 
             ItemsSource="{Binding LocalFiles}"
             SelectionMode="Single">
-                <!-- УДАЛЕН MouseDoubleClick -->
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="Название" Width="200" 

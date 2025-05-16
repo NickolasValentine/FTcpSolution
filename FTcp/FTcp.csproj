@@ -8,4 +8,12 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Remove="resources\app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="resources\app.ico" />
+  </ItemGroup>
+
 </Project>
