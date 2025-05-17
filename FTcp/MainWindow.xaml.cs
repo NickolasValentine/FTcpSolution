@@ -19,23 +19,33 @@ namespace FTcp
 {
     public partial class MainWindow : Window
     {
+        // Адрес и порт сервера для подключения
         private string serverAddress;
         private int serverPort;
+        // Флаг статуса подключения
         private bool isConnected = false;
+        // ID клиента, полученный от сервера
         private string clientId;
+        // Папка для локальных файлов клиента
         private const string ClientFilesDir = "ClientFiles";
 
-        public ObservableCollection<FileItem> LocalFiles { get; } = new ObservableCollection<FileItem>();
-        public ObservableCollection<FileItem> ServerFiles { get; } = new ObservableCollection<FileItem>();
-        public ObservableCollection<ClientInfo> ConnectedClients { get; } = new ObservableCollection<ClientInfo>();
+        // Коллекции для биндинга к UI: локальные файлы, файлы сервера и список клиентов
+        public ObservableCollection<FileItem> LocalFiles { get; } = new();
+        public ObservableCollection<FileItem> ServerFiles { get; } = new();
+        public ObservableCollection<ClientInfo> ConnectedClients { get; } = new();
 
+        // Отдельное TCP-соединение для уведомлений от сервера
         private TcpClient notificationClient;
         private NetworkStream notificationStream;
+        // Токен для отмены фонового прослушивания
         private CancellationTokenSource _updateCts;
+        // Наблюдатель за локальной папкой
         private FileSystemWatcher localFileWatcher;
-        private readonly object logLock = new object();
+        // Для логирования
+        private readonly object logLock = new();
         private const string LogFile = "client.log";
 
+        // Для передачи данных: TaskCompletionSource обеспечивает ожидание DATA_PORT
         private TaskCompletionSource<int> _dataPortTcs;
         private int _lastPort;
 
@@ -43,14 +53,13 @@ namespace FTcp
         {
             InitializeComponent();
             DataContext = this;
-
-            // Инициализация папки и наблюдателя за файлами
-            Directory.CreateDirectory(ClientFilesDir);
-            InitializeLocalFileWatcher();
-            LoadLocalFiles();
+            Directory.CreateDirectory(ClientFilesDir); // Создаём папку клиента
+            InitializeLocalFileWatcher();              // Настраиваем слежение за файлами
+            LoadLocalFiles();                          // Загружаем существующие файлы
             Logger("=== Новая сессия ===");
         }
 
+        // Запись событий в лог-файл и консоль
         private void Logger(string message, bool isError = false)
         {
             var logEntry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{(isError ? "ERROR" : "INFO")}] {message}";
@@ -59,6 +68,7 @@ namespace FTcp
                 File.AppendAllText(LogFile, logEntry + Environment.NewLine);
         }
 
+        // Настройка FileSystemWatcher для локальной директории
         private void InitializeLocalFileWatcher()
         {
             localFileWatcher = new FileSystemWatcher(ClientFilesDir)
@@ -66,11 +76,13 @@ namespace FTcp
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
                 EnableRaisingEvents = true
             };
+            // При изменении содержимого обновляем список файлов
             localFileWatcher.Created += (s, e) => Dispatcher.Invoke(LoadLocalFiles);
             localFileWatcher.Deleted += (s, e) => Dispatcher.Invoke(LoadLocalFiles);
             localFileWatcher.Renamed += (s, e) => Dispatcher.Invoke(LoadLocalFiles);
         }
 
+        // Сканирует папку клиента и заполняет LocalFiles
         private void LoadLocalFiles()
         {
             try
@@ -98,10 +110,12 @@ namespace FTcp
             }
         }
 
+        // Обработчик кнопки подключения к серверу
         private async void ConnectButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
+                // Сброс предыдущего прослушивания
                 _updateCts?.Cancel();
                 notificationStream?.Dispose();
                 notificationClient?.Dispose();
@@ -111,6 +125,7 @@ namespace FTcp
                 ServerFiles.Clear();
                 ConnectedClients.Clear();
 
+                // Валидация порта
                 if (!int.TryParse(PortTextBox.Text, out serverPort) || serverPort < 1 || serverPort > 65535)
                 {
                     MessageBox.Show("Некорректный порт!");
@@ -122,8 +137,8 @@ namespace FTcp
                 LocalFilesListView.IsEnabled = true;
                 ServerFilesListView.IsEnabled = true;
 
-                StartListeningForUpdates();
-                await LoadServerFiles().ConfigureAwait(false);
+                StartListeningForUpdates(); // Запускаем фоновый прослушиватель уведомлений
+                await LoadServerFiles().ConfigureAwait(false); // Загружаем текущий список файлов с сервера
 
                 MessageBox.Show("Подключено успешно!");
             }
@@ -134,12 +149,14 @@ namespace FTcp
             }
         }
 
+        // Старт фоновой задачи для получения уведомлений
         private void StartListeningForUpdates()
         {
             _updateCts = new CancellationTokenSource();
             Task.Run(() => ListenForUpdatesAsync(_updateCts.Token), _updateCts.Token);
         }
 
+        // Основной цикл чтения сообщений от сервера по notificationStream
         private async Task ListenForUpdatesAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
@@ -151,9 +168,11 @@ namespace FTcp
                     await notificationClient.ConnectAsync(serverAddress, serverPort, token);
                     notificationStream = notificationClient.GetStream();
 
+                    // Регистрируемся на канале уведомлений
                     var initCommand = Encoding.UTF8.GetBytes("NOTIFICATION_CHANNEL");
                     await notificationStream.WriteAsync(initCommand, 0, initCommand.Length, token);
 
+                    // Ожидаем ответ с CLIENT_ID
                     var buffer = new byte[128];
                     var bytesRead = await notificationStream.ReadAsync(buffer, 0, buffer.Length, token);
                     var response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
@@ -163,7 +182,7 @@ namespace FTcp
                         clientId = response.Split('|')[1];
                         // Обновите текст в UI
                         Dispatcher.Invoke(() => ClientIdText.Text = $"ID: {clientId.TrimEnd('\n', '\r')}");
-                        await notificationStream.WriteAsync(Encoding.UTF8.GetBytes("NOTIFICATION_ACK"), token);
+                        await notificationStream.WriteAsync(Encoding.UTF8.GetBytes("NOTIFICATION_ACK"), token); // Подтверждаем
 
                         // ... остальной код ...
                         var mainBuffer = new byte[4096];
@@ -225,7 +244,7 @@ namespace FTcp
             }
         }
 
-        // Переписанный метод обработки команд от сервера:
+        // Обработка команд от сервера: DATA_PORT, INCOMING_FILE, REFRESH, CLIENT_CONNECTED/DISCONNECTED
         private void ProcessServerCommand(string command)
         {
             var parts = command.Split('|');
@@ -247,7 +266,7 @@ namespace FTcp
                     var fn = parts[2];
                     var sz = long.Parse(parts[3]);
 
-                    // Новый TCS для приёма
+                    // Готовим TCS, запускаем при клиентском подтверждении
                     _dataPortTcs = new TaskCompletionSource<int>();
                     if (_lastPort != 0)
                         _dataPortTcs.TrySetResult(_lastPort);
@@ -289,6 +308,7 @@ namespace FTcp
             }
         }
 
+        // Приём файла: соединяемся на DATA_PORT, пишем clientId, сохраняем поток в файл
         private async Task ReceiveFileAsync(string fromId, string fileName, long fileSize)
         {
             try
@@ -300,7 +320,7 @@ namespace FTcp
                 using var dc = new TcpClient();
                 await dc.ConnectAsync(serverAddress, port);
                 using var ns = dc.GetStream();
-                await ns.WriteAsync(Encoding.UTF8.GetBytes(clientId + "\n"));
+                await ns.WriteAsync(Encoding.UTF8.GetBytes(clientId + "\n")); // Шлём свой ID
 
                 // 3) создаём файл и читаем ровно fileSize байт
 
@@ -344,6 +364,7 @@ namespace FTcp
             }
         }
 
+        // Обработка входящего файла от клиента
         private async void HandleIncomingFile(string senderId, string fileName, long fileSize)
         {
             var result = MessageBox.Show(
@@ -389,6 +410,7 @@ namespace FTcp
             }
         }
 
+        // Загрузка списка файлов с сервера (LIST)
         private async Task LoadServerFiles()
         {
             try
@@ -440,6 +462,7 @@ namespace FTcp
             }
         }
 
+        // Загрузка локального файла на сервер (UPLOAD / FORCE_UPLOAD)
         private async void UploadToServer_Click(object sender, RoutedEventArgs e)
         {
             var fileItem = LocalFilesListView.SelectedItem as FileItem;
@@ -477,7 +500,7 @@ namespace FTcp
 
                     // дальше идёт запись тела
                     await stream.WriteAsync(fileBytes, 0, fileBytes.Length);
-                    // можно ждать «HEADER_ACK» (как в загрузке), но сервер у вас сразу идёт в приём
+                    // можно ждать «HEADER_ACK» (как в загрузке), но сервер сразу идёт в приём
                     MessageBox.Show("Файл успешно загружен!");
                     await LoadServerFiles();
                 }
@@ -489,6 +512,7 @@ namespace FTcp
             } while (retryWithForce);
         }
 
+        // Отправка файла другому клиенту (P2P)
         private async void SendToClient_Click(object sender, RoutedEventArgs e)
         {
             var fi = LocalFilesListView.SelectedItem as FileItem;
@@ -531,6 +555,7 @@ namespace FTcp
             }
         }
 
+        // Скачивание файла с сервера по двойному клику
         private async void ServerFilesListView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             var fileItem = ServerFilesListView.SelectedItem as FileItem;
@@ -579,6 +604,7 @@ namespace FTcp
             }
         }
 
+        // При закрытии окна отменяем фоновые задачи и закрываем соединения
         protected override void OnClosed(EventArgs e)
         {
             _updateCts?.Cancel();
@@ -588,6 +614,7 @@ namespace FTcp
         }
     }
 
+    // Модель для отображения файлов в списке
     public class FileItem : INotifyPropertyChanged
     {
         private string _fileName;
@@ -632,6 +659,7 @@ namespace FTcp
         }
     }
 
+    // Модель для списка подключенных клиентов
     public class ClientInfo
     {
         public string Id { get; set; }

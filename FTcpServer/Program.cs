@@ -7,42 +7,58 @@ using System;
 
 class Program
 {
+    // Порт, на котором сервер слушает новые подключения
     private const int Port = 9000;
+    // Директория для хранения файлов на сервере
     private const string FilesDirectory = "ServerFiles";
+    // Потокобезопасный словарь подключенных клиентов: key = clientId, value = ClientInfo
     private static readonly ConcurrentDictionary<string, ClientInfo> ConnectedClients = new();
+    // FileSystemWatcher для отслеживания изменений в папке FilesDirectory
     private static FileSystemWatcher _fileWatcher;
+    // Лок для защиты доступа к файлу лога
     private static readonly object LogLock = new object();
+    // Путь к файлу лога
     private const string LogFile = "server.log";
 
+    // Представление информации о клиенте
     public class ClientInfo
     {
+        // Уникальный идентификатор клиента
         public string Id { get; } = Guid.NewGuid().ToString();
-        public NetworkStream Stream { get; init; } // Основной поток
+        // Основной поток для получения/отправки временных команд (UPLOAD, DOWNLOAD, LIST)
+        public NetworkStream Stream { get; init; }
+        // TcpClient для управления жизненным циклом
         public TcpClient Client { get; init; }
-        public NetworkStream NotificationStream { get; set; } // Новое поле для уведомлений
+        // Отдельный поток для уведомлений (NOTIFICATION_CHANNEL)
+        public NetworkStream NotificationStream { get; set; }
     }
 
+    // Точка входа: инициализация логгера, файловой папки и запуск слушателя
     static async Task Main()
     {
-        InitializeLogger();
-        Directory.CreateDirectory(FilesDirectory);
+        InitializeLogger();                   // Инициализируем логирование
+        Directory.CreateDirectory(FilesDirectory); // Гарантируем, что папка для файлов существует
         var listener = new TcpListener(IPAddress.Any, Port);
-        listener.Start();
+        listener.Start();                      // Начинаем слушать новые TCP-подключения
         Logger($"Сервер запущен на порту {Port}");
-        InitializeFileWatcher();
+        InitializeFileWatcher();               // Запускаем наблюдатель за локальными файлами
 
+        // Основной цикл: асинхронно принимаем новых клиентов
         while (true)
         {
             var client = await listener.AcceptTcpClientAsync();
-            _ = HandleClientAsync(client);
+            _ = HandleClientAsync(client);      // Обрабатываем подключение в фоне
         }
     }
 
+
+    // Настройка заголовка новой сессии в логе
     private static void InitializeLogger()
     {
         Logger($"\n=== Новая сессия {DateTime.Now:dd.MM.yyyy HH:mm} ===");
     }
 
+    // Метод логирования: запись в консоль и в файл
     private static void Logger(string message, bool isError = false)
     {
         var logEntry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{(isError ? "ERROR" : "INFO")}] {message}";
@@ -51,6 +67,7 @@ class Program
             File.AppendAllText(LogFile, logEntry + Environment.NewLine);
     }
 
+    // Настройка FileSystemWatcher: по событиям изменения папки отправляем команду REFRESH всем клиентам
     private static void InitializeFileWatcher()
     {
         _fileWatcher = new FileSystemWatcher(FilesDirectory)
@@ -58,17 +75,15 @@ class Program
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
             EnableRaisingEvents = true
         };
-        // При добавлении файла
+        // При создании, удалении, переименовании или изменении файла -> обновить список у клиентов
         _fileWatcher.Created += (s, e) => BroadcastCommand("REFRESH|");
-        // При удалении
         _fileWatcher.Deleted += (s, e) => BroadcastCommand("REFRESH|");
-        // При переименовании
         _fileWatcher.Renamed += (s, e) => BroadcastCommand("REFRESH|");
-        // При изменении содержимого (например, перезапись)
         _fileWatcher.Changed += (s, e) => BroadcastCommand("REFRESH|");
         _fileWatcher.Error += (s, e) => Logger($"Ошибка FileSystemWatcher: {e.GetException().Message}", true);
     }
 
+    // Обработка нового TCP-клиента: определяем тип канала и делегируем работу
     private static async Task HandleClientAsync(TcpClient client)
     {
         NetworkStream stream = null;
@@ -79,13 +94,14 @@ class Program
             stream = client.GetStream();
             var buffer = new byte[4096];
 
-            // Чтение первой команды
+            // Читаем первую команду от клиента
             var bytesRead = await stream.ReadAsync(buffer);
             if (bytesRead == 0) return;
 
             var initialCommand = Encoding.UTF8.GetString(buffer, 0, bytesRead);
             var parts = initialCommand.Split('|');
 
+            // Клиент запросил канал уведомлений
             if (parts[0] == "NOTIFICATION_CHANNEL")
             {
                 clientInfo = new ClientInfo
@@ -95,15 +111,14 @@ class Program
                     NotificationStream = stream
                 };
 
-                // Добавление клиента в список
+                // Добавляем в список активных
                 ConnectedClients.TryAdd(clientInfo.Id, clientInfo);
                 Logger($"Новое подключение: {client.Client.RemoteEndPoint} | ID: {clientInfo.Id}");
 
-                // Отправка ID клиенту
+                // Отправляем сгенерированный ID клиенту
                 await SendResponseAsync(stream, $"CLIENT_ID|{clientInfo.Id}");
 
-                // Рассылка уведомлений:
-                // 1. Всем существующим клиентам о новом подключении (кроме себя)
+                // Уведомляем других клиентов о новом
                 foreach (var existingClient in ConnectedClients.Values)
                 {
                     if (existingClient.Id != clientInfo.Id)
@@ -112,7 +127,7 @@ class Program
                     }
                 }
 
-                // 2. Новому клиенту о существующих (кроме себя)
+                // Новому клиенту шлём список уже подключенных (кроме себя)
                 foreach (var existingClient in ConnectedClients.Values)
                 {
                     if (existingClient.Id != clientInfo.Id)
@@ -121,7 +136,7 @@ class Program
                     }
                 }
 
-                // Обработка P2P-команд
+                // Вечно слушаем P2P-команды (SEND_TO_CLIENT)
                 while (client.Connected)
                 {
                     bytesRead = await stream.ReadAsync(buffer);
@@ -137,7 +152,7 @@ class Program
                             var recipientId = parts[1];
                             var fileName = parts[2];
                             var fileSize = long.Parse(parts[3]);
-                            // clientInfo.Id — это ваш senderId
+                            // Обработка P2P в отдельном потоке
                             _ = Task.Run(() =>
                                 HandleP2PTransfer(clientInfo.Id, recipientId, fileName, fileSize));
                             break;
@@ -146,6 +161,7 @@ class Program
             }
             else
             {
+                // Временные команды (UPLOAD, DOWNLOAD, LIST)
                 await ProcessTemporaryCommand(stream, initialCommand);
             }
         }
@@ -155,6 +171,7 @@ class Program
         }
         finally
         {
+            // При отключении очищаем
             if (clientInfo != null)
             {
                 ConnectedClients.TryRemove(clientInfo.Id, out _);
@@ -164,7 +181,7 @@ class Program
         }
     }
 
-    // Обработка временных команд
+    // Обработка команд без постоянного канала
     private static async Task ProcessTemporaryCommand(NetworkStream stream, string command)
     {
         var parts = command.Split('|');
@@ -194,12 +211,14 @@ class Program
         }
     }
 
+    // Приём файла от клиента (UPLOAD)
     private static async Task HandleUploadAsync(NetworkStream stream, string[] parts, bool forceOverwrite)
     {
         string fileName = parts[1];
         string filePath = Path.Combine(FilesDirectory, fileName);
         long fileSize = long.Parse(parts[2]);
 
+        // Если файл уже есть — по заголовку FORCE_UPLOAD удаляем старый
         if (File.Exists(filePath))
         {
             if (forceOverwrite)
@@ -213,7 +232,7 @@ class Program
             }
         }
 
-        await SendResponseAsync(stream, "HEADER_ACK");
+        await SendResponseAsync(stream, "HEADER_ACK"); // Готовы принимать тело
 
         using (var fs = new FileStream(filePath, FileMode.Create))
         {
@@ -229,16 +248,17 @@ class Program
         }
 
         await SendResponseAsync(stream, "ACK");
-        BroadcastCommand($"REFRESH|");
+        BroadcastCommand($"REFRESH|"); // Уведомляем клиентов об обновлении
     }
 
+    // Отдача файла клиенту (DOWNLOAD)
     private static async Task HandleDownloadAsync(NetworkStream stream, string fileName)
     {
         string filePath = Path.Combine(FilesDirectory, fileName);
         if (!File.Exists(filePath)) return;
 
         var fileInfo = new FileInfo(filePath);
-        await SendResponseAsync(stream, $"SIZE|{fileInfo.Length}");
+        await SendResponseAsync(stream, $"SIZE|{fileInfo.Length}"); // Сначала шлём размер
 
         using (var fs = File.OpenRead(filePath))
         {
@@ -251,6 +271,7 @@ class Program
         await SendResponseAsync(stream, "ACK");
     }
 
+    // Отправка списка файлов (LIST)
     private static async Task HandleListAsync(NetworkStream stream)
     {
         try
@@ -272,6 +293,7 @@ class Program
         }
     }
 
+    // Отправка строки с \n-разделителем
     private static async Task SendResponseAsync(NetworkStream stream, string response)
     {
         try
@@ -286,6 +308,7 @@ class Program
         }
     }
 
+    // Широковещательная команда всем подключённым клиентам
     private static void BroadcastCommand(string command)
     {
         var commandBytes = Encoding.UTF8.GetBytes(command + "\n");
@@ -302,9 +325,10 @@ class Program
         }
     }
 
+    // Логика P2P-передачи: получает соединения, ретранслирует поток и ждёт ACK
     static async Task HandleP2PTransfer(string senderId, string recipientId, string fileName, long fileSize)
     {
-        // 1) Получаем ClientInfo, а из него — поток уведомлений
+        // По senderId и recipientId находим ClientInfo
         if (!ConnectedClients.TryGetValue(senderId, out var senderInfo) ||
             !ConnectedClients.TryGetValue(recipientId, out var recipientInfo))
         {
@@ -314,24 +338,24 @@ class Program
         var senderStream = senderInfo.NotificationStream;
         var recipientStream = recipientInfo.NotificationStream;
 
-        // 2) Стартуем listener и получаем порт
+        // Открываем временный listener на свободном порту
         var listener = new TcpListener(IPAddress.Any, 0);
         listener.Start();
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;
 
-        // 3) Шлём порт обеим сторонам по управлению
+        // Шлём порт обеим сторонам
         await SendLineAsync(senderStream, $"DATA_PORT|{port}");
         await SendLineAsync(recipientStream, $"DATA_PORT|{port}");
 
-        // 4) Уведомляем получателя о входящем файле
+        // Оповещаем получателя о входящем файле
         await SendLineAsync(recipientStream,
                             $"INCOMING_FILE|{senderId}|{fileName}|{fileSize}");
 
-        // 5) Ждём ровно два data-соединения
+        // Ждём два соединения: от отправителя и получателя
         var conn1 = await listener.AcceptTcpClientAsync();
         var conn2 = await listener.AcceptTcpClientAsync();
 
-        // 6) Читаем clientId без StreamReader
+        // Читаем ID обеих сторон
         var ns1 = conn1.GetStream();
         var ns2 = conn2.GetStream();
         var id1 = await ReadClientIdAsync(ns1);
@@ -342,7 +366,7 @@ class Program
             Logger($"P2P: получены ID: [{id1}] и [{id2}], ожидались: [{senderId}] и [{recipientId}]", true);
         }
 
-        // 7) Разбираем, кто sender, кто recipient
+        // Разбираем, кто sender, кто recipient
         TcpClient dataSender, dataReceiver;
         if (id1 == senderId && id2 == recipientId)
         {
@@ -363,7 +387,7 @@ class Program
 
         try
         {
-            // 7) Relay
+            // Relay
             var sendNs = dataSender.GetStream();
             var recvNs = dataReceiver.GetStream();
 
@@ -371,7 +395,7 @@ class Program
             var idSender = await ReadClientIdAsync(sendNs);
             var idReceiver = await ReadClientIdAsync(recvNs);
 
-            // 2. после ReadClientIdAsync — начинаем передачу вручную, НЕ CopyToAsync
+            // Ретрансляция данных между sendNs и recvNs
             var buffer = new byte[8192];
             int read;
             while ((read = await sendNs.ReadAsync(buffer)) > 0)
@@ -380,10 +404,10 @@ class Program
             }
             await recvNs.FlushAsync();
 
-            // Уведомляем передающего о завершении
+            // Оповещение об окончании передачи
             dataSender.Client.Shutdown(SocketShutdown.Send);
 
-            // Ждём подтверждения (ACK) от получателя
+            // Ожидание ACK от получателя
             var ackSb = new StringBuilder();
             var buf = new byte[1];
             while (true)
@@ -404,7 +428,7 @@ class Program
                 Logger($"Получено:{ackSb}.");
             }
 
-            // Отправляем уведомления об успешной передаче
+            // Уведомляем обе стороны о завершении
             await SendLineAsync(senderStream, "TRANSFER_COMPLETE");
             await SendLineAsync(recipientStream, "TRANSFER_COMPLETE");
             dataSender.Close();
@@ -417,13 +441,14 @@ class Program
         }
     }
 
-    // Вспомогательная функция
+    // Отправка строки с разделителем и переводом строки
     static Task SendLineAsync(NetworkStream s, string line)
     {
         var buf = Encoding.UTF8.GetBytes(line + "\n");
         return s.WriteAsync(buf, 0, buf.Length);
     }
 
+    // Считывает clientId до \n
     private static async Task<string> ReadClientIdAsync(NetworkStream ns)
     {
         var sb = new StringBuilder();
